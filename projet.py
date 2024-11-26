@@ -1,6 +1,7 @@
 import cv2
 import matplotlib.pyplot as plt 
 import numpy as np
+import time
 
 video= cv2.VideoCapture("video.mp4")
 ret,frame = video.read()
@@ -50,9 +51,8 @@ while True:
         break
 
 
-cv2.destroyAllWindows()
 
-
+print(f"x_min: {x_min}, y_min: {y_min}, x_max: {x_max}, y_max: {y_max}")
 
 
 # take region of interest ( take inside of rectangle )
@@ -68,20 +68,131 @@ feature_params = dict(maxCorners=20,  # We want only one feature
                       blockSize=7)
 
 first_gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+mask = np.zeros_like(first_gray)
+mask[y_min:y_max, x_min:x_max] = 255
 
 # Harris Corner detection
-points = cv2.goodFeaturesToTrack(first_gray, mask=None, **feature_params)
+points = cv2.goodFeaturesToTrack(first_gray, mask=mask, **feature_params)
 
 
-# Filter the detected points to find one within the bounding box
-for point in points:
-    x, y = point.ravel()
-    if y_min <= y <= y_max and x_min <= x <= x_max:
-        selected_point = point
-        break
+
+# selected_point=None
+# # Filter the detected points to find one within the bounding box
+# for point in points:
+#     x, y = point.ravel()
+#     if y_min <= y <= y_max and x_min <= x <= x_max:
+#         selected_point = point
+#         print("trouvé")
+#         break
+# if selected_point is None:
+#     print("none")
+
+if points is None or len(points) == 0:
+    print("Aucun point détecté dans la ROI.")
+else:
+    selected_point = None
+    for point in points:
+        x, y = point.ravel()
+        print(f"x: {x}, y: {y}")
+        if y_min <= y <= y_max and x_min <= x <= x_max:
+            selected_point = point
+            print("Point trouvé :", selected_point)
+            break
 
 # If a point is found, convert it to the correct shape
 if selected_point is not None:
-    p0 = np.array([selected_point], dtype=np.float32)
+   p0 = np.array([selected_point], dtype=np.float32)
+   print(p0)
+else:
+   print("Aucun point trouvé dans la bounding box.")
 
 plt.imshow(roi_gray,cmap="gray")
+
+
+
+
+
+
+
+# Parameters for Lucas-Kanade optical flow
+lk_params = dict(winSize=(7, 7),  # Window size
+                 maxLevel=2,  # Number of pyramid levels
+                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+
+
+
+# Take first frame and find corners in it
+ret, old_frame = video.read()
+
+width = old_frame.shape[1]
+height = old_frame.shape[0]
+
+# Create a mask image for drawing purposes
+mask = np.zeros_like(old_frame)
+
+frame_count = 0
+start_time = time.time()
+
+old_gray = first_gray
+
+while True:
+    ret, frame = video.read()
+    if not ret:
+        break
+
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    if p0 is not None:
+        # Calculate optical flow
+        p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)  
+        good_new = p1[st == 1]  # st==1 means found point
+        good_old = p0[st == 1]
+
+
+        if len(good_new) > 0:
+            # Calculate movement
+            a, b = good_new[0].ravel()
+            c, d = good_old[0].ravel()
+ 
+            # Draw the tracks
+            mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (0, 255, 0), 2)
+            frame = cv2.circle(frame, (int(a), int(b)), 5, (0, 255, 0), -1)
+
+            img = cv2.add(frame, mask)
+
+            # Calculate and display FPS
+            elapsed_time = time.time() - start_time
+            fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+            cv2.putText(img, f"FPS: {fps:.2f}", (width - 200, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+
+            cv2.imshow('frame', img)
+
+            # Update previous frame and points
+            old_gray = frame_gray.copy()
+            p0 = good_new.reshape(-1, 1, 2)
+
+        else:
+            p0 = None
+
+        # Check if the tracked point is out of frame
+        if not (25 <= a < width):
+            p0 = None  # Reset p0 to None to detect new feature in the next iteration
+            selected_point_distance = 0  # Reset selected point distance when new point is detected
+
+
+    # Redetect features if necessary
+    if p0 is None:
+        p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
+        mask = np.zeros_like(frame)
+        selected_point_distance=0
+ 
+    frame_count += 1
+
+    k = cv2.waitKey(25)
+    if k == 27:
+        break
+
+ 
+cv2.destroyAllWindows()
+video.release()
