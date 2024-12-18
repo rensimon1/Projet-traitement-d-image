@@ -11,7 +11,7 @@ import numpy as np
 import time
 
 # Charger la vidéo
-video = cv2.VideoCapture("video6.mp4")
+video = cv2.VideoCapture("video5.mp4")
 ret, first_frame = video.read()
 
 x_min, y_min, x_max, y_max = 36000, 36000, 0, 0
@@ -93,7 +93,7 @@ else:
 
 if selected_point is not None:
     p0 = np.array([selected_point], dtype=np.float32)
-    kalman.statePost = np.array([[x], [y], [0], [0]], dtype=np.float32)
+    kalman.statePre = np.array([[x], [y], [0], [0]], dtype=np.float32)
 else:
     p0 = None
     print("Aucun point trouvé dans la bounding box.")
